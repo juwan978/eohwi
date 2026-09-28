@@ -523,6 +523,7 @@ function screenHome() {
       ${wrongN ? `<button class="btn" id="startWrong" style="background:var(--red)">오답 ${wrongN}개 다시 풀기</button>` : ''}
       <button class="btn ghost" id="toWrong">오답 노트${wrongN ? ` (${wrongN})` : ''}</button>
       <button class="btn ghost" id="toAll">전체 단어 찾아보기</button>
+      <button class="btn ghost" id="share">아빠에게 보내기</button>
     </div>
 
     <div class="note">
@@ -586,6 +587,7 @@ function screenHome() {
     };
   });
   document.getElementById('toWrong').onclick = () => screenList('wrong');
+  document.getElementById('share').onclick = e => shareReport(e.currentTarget);
   document.getElementById('toAll').onclick = () => screenList('all');
 }
 
@@ -726,6 +728,7 @@ function finishItem() {
     S.right++;
     S.cleared.push(d);
   }
+  r.a = (r.a || 0) + 1;                 // 이 단어를 푼 횟수 — 아빠 리포트용
   r.t = Date.now();                     // 마지막으로 푼 시각 — '오늘 푼 것' 집계에 쓴다
   store.done++;
   if (S.streak > (store.best || 0)) { store.best = S.streak; msg.record = true; }
@@ -774,6 +777,53 @@ function quit() {
   else screenHome();
 }
 
+/* ============ 아빠에게 보내기 ============ */
+function reportText() {
+  const L = [], all = DATA, now = Date.now(), t0 = startOfToday();
+  const done = store.done || 0, wrongs = all.reduce((s, d) => s + store.rec[d.i].w, 0);
+  const c = counts(all);
+  L.push(`[국어 어휘 뜻 맞히기 · 24~47p · ${all.length}개]`);
+  if (!done) { L.push('아직 푼 문제가 없습니다.'); return L.join('\n'); }
+  L.push(`정답률 ${Math.round((done - wrongs) / done * 100)}% — ${done}번 풀어서 ${wrongs}번 틀림 · 최고 연속 ${store.best || 0}`);
+  L.push(`외웠다 ${c.know} · 외우는 중 ${c.learn} · 못 외웠다 ${c.hard} · 아직 안 봄 ${c.new}`);
+  L.push(`오늘 푼 단어 ${all.filter(d => (store.rec[d.i].t || 0) >= t0).length}개 · 지금까지 푼 단어 ${all.filter(d => store.rec[d.i].t).length}개`);
+  L.push('');
+  L.push('■ 범위별 (외웠다·외우는 중·못 외웠다·안 봄 / 틀린 횟수)');
+  SECTIONS.forEach(s => {
+    const sub = all.filter(d => d.g === s), cc = counts(sub);
+    L.push(`  ${s} — ${cc.know}·${cc.learn}·${cc.hard}·${cc.new} / ✕${sub.reduce((x, d) => x + store.rec[d.i].w, 0)}`);
+  });
+  const note = all.filter(d => isWrongNote(d.i)).sort((a, b) => store.rec[b.i].w - store.rec[a.i].w);
+  L.push('');
+  L.push(`■ 오답 노트 (틀린 뒤 아직 못 맞힌 것) ${note.length}개`);
+  note.slice(0, 40).forEach((d, n) => L.push(`  ${n + 1}) ${d.k}(${d.h}) — ${d.m}  ✕${store.rec[d.i].w}`));
+  if (note.length > 40) L.push(`  … 외 ${note.length - 40}개`);
+  const ew = all.filter(d => store.rec[d.i].w > 0 && !isWrongNote(d.i)).sort((a, b) => store.rec[b.i].w - store.rec[a.i].w);
+  if (ew.length) {
+    L.push('');
+    L.push(`■ 틀린 적 있지만 그 뒤 맞힌 것 ${ew.length}개 (틀린 횟수 · 지금 연속 정답)`);
+    ew.slice(0, 30).forEach((d, n) => L.push(`  ${n + 1}) ${d.k}(${d.h}) ✕${store.rec[d.i].w} · 연속 ${store.rec[d.i].n}`));
+    if (ew.length > 30) L.push(`  … 외 ${ew.length - 30}개`);
+  }
+  return L.join('\n');
+}
+
+async function shareReport(btn) {
+  const txt = reportText();
+  const label = btn ? btn.textContent : '';
+  try { if (navigator.share) { await navigator.share({ title: '국어 어휘 리포트', text: txt }); return; } }
+  catch (e) { if (e && e.name === 'AbortError') return; }
+  try {
+    await navigator.clipboard.writeText(txt);
+    if (btn) { btn.textContent = '복사했어요 · 카톡에 붙여넣기'; setTimeout(() => btn.textContent = label, 2500); }
+    return;
+  } catch (e) { }
+  if (!btn) return;
+  const ta = $(`<textarea style="width:100%;height:220px;font-size:12px;font-family:monospace;margin-top:10px;
+    border:1px solid var(--rule);border-radius:10px;padding:10px"></textarea>`);
+  ta.value = txt; btn.after(ta); ta.select();
+}
+
 /* ============ 결과 ============ */
 function screenResult() {
   const acc = S.total ? Math.round(S.right / S.total * 100) : 0;
@@ -811,8 +861,10 @@ function screenResult() {
     <div style="display:flex;flex-direction:column;gap:9px;margin-top:auto">
       <button class="btn" id="more">${leftAll ? '이어서 풀기' : '처음부터 다시'}</button>
       <button class="btn ghost" id="home">홈으로</button>
+      <button class="btn ghost" id="share">아빠에게 보내기</button>
     </div>
   </div>`));
+  document.getElementById('share').onclick = e => shareReport(e.currentTarget);
   document.getElementById('more').onclick = () => {
     if (leftAll) {
       const seen = S.seen, mode = S.mode, list = S.list;
